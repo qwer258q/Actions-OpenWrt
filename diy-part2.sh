@@ -18,3 +18,8 @@
 
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
+
+# 2. 添加你需要的网速测试插件
+# 我们直接克隆到 package/netspeedtest，结构简单明了
+rm -rf package/netspeedtest || true
+git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
