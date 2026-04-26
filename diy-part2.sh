@@ -19,14 +19,6 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-#!/bin/bash
-
-# 先删除可能存在的旧插件目录，防止 clone 失败
-rm -rf package/netspeedtest
-
-# 然后再执行克隆
-git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
-
 # 6. 额外建议：针对 24.10 的 Firewall4 优化
 # 确保在编译时默认开启一些网络加速特性
 echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
