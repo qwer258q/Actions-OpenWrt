@@ -133,7 +133,7 @@ jobs:
          - **内核版本**: Linux 6.6 (padavanonly)
          - **驱动**: MTK SDK 原厂无线驱动 (支持快速漫游/HE160)
          - **加速**: 已内置 TurboAcc (HNAT/BBR)
-         - **默认 IP**: 192.168.1.1
+         - **默认 IP**: 192.168.31.1
          - **特色**: 集成 OpenClash, Zerotier, DDNS-GO">> release.txt
          echo "release_name=$release_tag" >> $GITHUB_OUTPUT
          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
