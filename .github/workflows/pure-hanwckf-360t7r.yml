@@ -1,157 +1,203 @@
-name: pure-360T7-108M-padavanonly-6.6
+name: pure-padavanonly-360t7-24.10-6.6
 
 on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
       clean:
-        description: '是否清理 ccache'
-        default: 'false'
+         description: '是否清理ccache'
+         default: 'false'
 
+
+# ==================== 环境变量配置 ====================
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: pure.config
+  CONFIG_FILE: 6.6_pure.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
+# ==================== 编译任务定义 ====================
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 检查项目分支
+    # [1] 检出仓库代码
+    - name: 检出项目分支源码
       uses: actions/checkout@main
 
+    # [2] 清理磁盘空间
+    - name: 释放编译环境磁盘空间 (Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    # [3] 初始化编译环境
     - name: 初始化编译环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get -qq update
-        # 针对 6.6 内核增加了 llvm/clang 等必要组件，并补齐了 Ruby 编译依赖
-        sudo -E apt-get -qq install build-essential clang llvm flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools rsync swig unzip zlib1g-dev libevdev-dev
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo apt-mark hold grub-efi-amd64-signed
+        sudo apt update -y
+        sudo apt full-upgrade -y
+        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        echo "FIRMWARE_VERSION=$(date +"%y%m%d")" >> $GITHUB_ENV
-        echo "START_DATE=$(date +'%Y年%m月%d日 %H点%M分%S秒')" >> $GITHUB_ENV
-        
-    - name: 下载源码
+
+    # [4] 克隆ImmortalWrt源码
+    - name: 克隆 ImmortalWrt 源码仓库
       working-directory: /workdir
       run: |
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH --single-branch --depth 1 openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-        
-    - name: 加载软件源
+
+    # [5] 加载自定义 feeds 配置
+    - name: 加载自定义 feeds 配置
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
-        
-    - name: 更新软件源
+
+    # [6] 更新 feeds 索引
+    - name: 更新 feeds 索引
       run: cd openwrt && ./scripts/feeds update -a
 
-    - name: 安装软件源
+    # [7] 安装 feeds 软件包
+    - name: 安装 feeds 软件包
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: 处理 108M 闪存与冲突插件
-      run: |
-        cd openwrt
-        echo "🔧 正在针对 108M 闪存版本进行底层优化..."
-        
-        # 24.10 强制使用 Firewall4，删除与 nftables 冲突的旧版插件
-        # 确保 OpenClash 作为唯一代理，防止 iptables 规则残留导致断网
-        for pkg in luci-app-fchomo luci-app-homeproxy nikki luci-app-passwall2; do
-          find package/feeds -name "$pkg" -type d -exec rm -rf {} \; 2>/dev/null || true
-        done
-        echo "✅ 依赖库清理完成"
-
-    - name: 加载自定义配置
+    # [8] 加载自定义编译配置
+    - name: 加载自定义编译配置
       run: |
         [ -e files ] && mv files openwrt/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        
-        # 核心步骤：根据你的 config 刷新依赖，避免内核特性缺失
-        make defconfig
-        
-    - name: 下载编译资源包
+
+    # [9] 预下载软件包
+    - name: 预下载软件包
       id: package
       run: |
         cd openwrt
-        make download -j16
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-        
+
+    # [10] 编译固件（启用 ccache + 优化并行）
     - name: 编译固件
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        # padavanonly 的源码建议初次编译开启 V=s 方便排错，或使用多线程
-        make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "status=success" >> $GITHUB_OUTPUT
+        # 启用 ccache
+        export USE_CCACHE=1
+        export CCACHE_DIR="$PWD/.ccache"
+        export CCACHE_COMPILERCHECK=content
+        export CCACHE_COMPRESS=1
+        export CCACHE_COMPRESSLEVEL=6
+        export CCACHE_MAXSIZE=2G
         
+        echo "🔧 编译线程数: $(nproc)"
+        echo "📦 ccache 状态:"
+        ccache -s 2>/dev/null || echo "ccache 未安装或首次运行"
+        
+        # 编译：优先并行，失败时降级单线程重试
+        make -j$(($(nproc) + 1)) || make -j1 || make -j1 V=s
+        
+        echo "✅ 编译完成，ccache 统计:"
+        ccache -s 2>/dev/null || true
+        
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    # [11] 检查磁盘使用情况
+    - name: 检查磁盘空间使用
+      if: (!cancelled())
+      run: df -hT
+
+    # [12] 整理固件文件
     - name: 整理固件文件
       id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        # 进入 MT7981 芯片组对应的输出目录
-        cd openwrt/bin/targets/mediatek/mt7981
-        rm -rf packages version.buildinfo profiles.json *rootfs* *kernel* *.manifest sha256sums
-        
-        # 自动重命名 108M 专用固件
-        mv *sysupgrade.bin ${{ env.FIRMWARE_VERSION }}-360T7-108M-6.6-sysupgrade.bin || true
-        mv *factory.bin ${{ env.FIRMWARE_VERSION }}-360T7-108M-6.6-factory.bin || true
-        
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
-        
-    - name: 上传固件至 Artifacts
+
+    # [13] 上传固件到 Actions 产物
+    - name: 上传固件 (Actions 产物)
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.FIRMWARE_VERSION }}-360T7-108M-Solid
+        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
-        
-    - name: 创建 GitHub Release
+
+    # [14] 生成 Release 标签
+    - name: 生成 Release 标签
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
          time=$(date +%Y.%m.%d)
-         release_tag="360T7-108M-padavanonly-6.6-$time"
-         echo "### 360T7 108M 高性能版
-         - **内核版本**: Linux 6.6 (padavanonly)
-         - **驱动**: MTK SDK 原厂无线驱动 (支持快速漫游/HE160)
-         - **加速**: 已内置 TurboAcc (HNAT/BBR)
-         - **默认 IP**: 192.168.31.1
-         - **特色**: 集成 OpenClash, Zerotier, DDNS-GO">> release.txt
-         echo "release_name=$release_tag" >> $GITHUB_OUTPUT
+         release_tag="360T7-ImmortalWrt-2410-$time"
+         release_name="360T7-ImmortalWrt-2410-$time"
+
+         cat > release.txt <<EOF
+         ## 📦 固件信息
+         - 🎯 设备：360T7 (MT7981)
+         - 📅 构建：$time
+         - 🌐 网关：192.168.31.1
+         - 🔑 密码：*空*
+         
+         > ⚠️ 首次登录请修改默认密码
+         EOF
+
+         echo "release_name=$release_name" >> $GITHUB_OUTPUT
          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
          echo "status=success" >> $GITHUB_OUTPUT
-        
-    - name: 发布至 Release
+
+    # [15] 发布固件到 GitHub Releases
+    - name: 发布固件到 GitHub Releases
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-          name: ${{ steps.tag.outputs.release_name }} 
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          body_path: release.txt
-          files: ${{ env.FIRMWARE }}/*
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: ${{ env.FIRMWARE }}/*
 
-    - name: 自动清理历史运行
+    # [16] 清理旧的工作流运行记录
+    - name: 清理旧的工作流记录
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
-        keep_minimum_runs: 3
+        keep_minimum_runs: 10
+
+    # [17] 清理旧的 Releases
+    - name: 清理旧的 Releases
+      uses: dev-drprasad/delete-older-releases@v0.2.1
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 10
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
