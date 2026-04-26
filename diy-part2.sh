@@ -26,8 +26,6 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 rm -rf feeds/luci/applications/luci-app-mosdns
 rm -rf feeds/packages/net/mosdns
 rm -rf feeds/packages/net/v2ray-geodata
-rm -rf package/feeds/luci/luci-app-netspeedtest
-rm -rf package/netspeedtest
 
  # 拉取 sbwml 的 v5 分支版本
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
