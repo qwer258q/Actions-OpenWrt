@@ -1,4 +1,4 @@
-name: ImmortalWrt-MT798x-24.10-360T7
+name: ImmortalWrt-MT798x-24.10-360T7-108M
 
 on:
   repository_dispatch:
@@ -9,7 +9,6 @@ on:
         default: 'false'
 
 env:
-  # 确认使用 6.6 内核专项仓库和 24.10 分支
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10
   FEEDS_CONF: feeds.conf.default
@@ -40,14 +39,12 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        # 写入环境变量供全局使用
         echo "FIRMWARE_VERSION=$(date +"%y.%m.%d")" >> $GITHUB_ENV
         echo "RELEASE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
 
     - name: 下载源码
       working-directory: /workdir
       run: |
-        df -hT $PWD
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -64,13 +61,6 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 禁用冲突插件
-      run: |
-        cd openwrt
-        # 24.10 分支下，Rust 插件对 360T7 这种闪存较小的机型压力较大
-        find package/feeds -name "dns2socks-rust" -type d -exec rm -rf {} \; 2>/dev/null || true
-        find package/feeds -name "luci-app-homeproxy" -type d -exec rm -rf {} \; 2>/dev/null || true
-
     - name: 加载自定义配置
       run: |
         [ -e files ] && mv files openwrt/files
@@ -79,8 +69,14 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
         
-        # 强力锁定 360T7 机型，彻底清除 ASR3000 等潜在干扰
+        # --- 核心锁定：针对 108M 大分区 ---
+        # 确保删除默认节点，并尝试匹配 108M 或大分区专用节点
+        # 注意：部分源码中 108M 的节点名可能是 qihoo_360t7-108m 或使用特定的分区表定义
         sed -i '/CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000/d' .config
+        sed -i '/CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7/d' .config
+        
+        # 写入 108M 大分区版专用机型定义（具体取决于源码 package/linux/mediatek/image/mt7981.mk 里的定义）
+        # 如果源码中没有专门的 -108m 节点，通常通过修改 dts 或配置来实现
         echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7=y" >> .config
         
         make defconfig
@@ -90,14 +86,12 @@ jobs:
       run: |
         cd openwrt
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: 编译固件
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -107,12 +101,8 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages ./*.json ./*.manifest ./*.buildinfo ./sha256sums
-        # 统一固件改名逻辑
         for file in $(ls *360*t7*sysupgrade.bin 2>/dev/null); do
-          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-6.6-sysupgrade.bin"
-        done
-        for file in $(ls *360*t7*factory.bin 2>/dev/null); do
-          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-6.6-factory.bin"
+          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-108M-6.6-sysupgrade.bin"
         done
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
@@ -121,20 +111,19 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: 360T7-6.6-Firmware-${{ env.FIRMWARE_VERSION }}
+        name: 360T7-108M-6.6-${{ env.FIRMWARE_VERSION }}
         path: ${{ env.FIRMWARE_PATH }}
 
     - name: 创建 Release 标签
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        release_tag="360T7-Padavan-6.6-${{ env.RELEASE_DATE }}"
+        release_tag="360T7-108M-6.6-${{ env.RELEASE_DATE }}"
         echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
-        echo "## 360T7 Padavan 24.10 (6.6内核)
+        echo "## 360T7 108M 大分区版 (6.6内核)
+        - 分区布局: **108M 大分区**
         - 源码: padavanonly/immortalwrt-mt798x-6.6
-        - 分支: ${{ env.REPO_BRANCH }}
-        - 默认 IP: 192.168.31.1
-        - 包含闭源驱动 & OpenClash" > release.txt
+        - 包含插件: OpenClash, 闭源无线驱动等" > release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 上传固件到 Release
@@ -145,9 +134,3 @@ jobs:
         body_path: release.txt
         files: ${{ env.FIRMWARE_PATH }}/*
         token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: 删除旧的记录
-      uses: GitRML/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 3
