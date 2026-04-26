@@ -26,17 +26,15 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 rm -rf feeds/luci/applications/luci-app-mosdns
 rm -rf feeds/packages/net/mosdns
 rm -rf feeds/packages/net/v2ray-geodata
-
 rm -rf package/feeds/luci/luci-app-netspeedtest
-# 先删除自带的（如果存在）
 rm -rf package/netspeedtest
-git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest 
 
-# 拉取 sbwml 的 v5 分支版本
+ # 拉取 sbwml 的 v5 分支版本
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
 #luci-app-netspeedtest测速克隆
+git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
 
 # 4. 修改默认 IP (可选，例如改为 192.168.1.1)
 # sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
