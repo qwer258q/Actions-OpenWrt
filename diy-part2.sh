@@ -19,22 +19,19 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 2. 【核心步骤】删除所有可能冲突的 feeds 索引
-# 这能确保编译系统不会因为“发现两个同名插件”而困惑
-rm -rf feeds/small/mosdns
-rm -rf feeds/small/luci-app-mosdns
-rm -rf feeds/small/netspeedtest
-rm -rf feeds/small/luci-app-netspeedtest
-rm -rf feeds/luci/applications/luci-app-mosdns
-rm -rf feeds/packages/net/mosdns
+# 3. 暴力清理：不管有没有，先通通删一遍
+# 增加 -f 强制删除，不提示错误
+rm -rf feeds/small/mosdns feeds/small/luci-app-mosdns feeds/small/netspeedtest feeds/small/luci-app-netspeedtest
+rm -rf feeds/luci/applications/luci-app-mosdns feeds/packages/net/mosdns
+rm -rf feeds/luci/applications/luci-app-netspeedtest
 
-# 3. 【核心步骤】删除已经存在的物理文件夹
-# 这一步彻底解决你图片里的 Exit code 128 报错
+# 4. 解决 Exit 128 的核心：物理抹除 package 目录
+# 确保在 git clone 前，这三个文件夹绝对不存在
 rm -rf package/mosdns
 rm -rf package/v2ray-geodata
 rm -rf package/netspeedtest
 
-# 4. 重新拉取你指定的精准源码
+# 5. 重新拉取
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
