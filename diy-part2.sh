@@ -19,8 +19,24 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 2. 添加你需要的网速测试插件
-# 我们直接克隆到 package/netspeedtest，结构简单明了
+#!/bin/bash
+
+# 1. 替换 mosdns 和 v2ray-geodata (对应你图片中的逻辑)
+# 彻底清理旧的 feeds 冲突项
+rm -rf feeds/luci/applications/luci-app-mosdns
+rm -rf feeds/packages/net/mosdns
+rm -rf feeds/packages/net/v2ray-geodata
+
+# 拉取 sbwml 的 v5 分支版本
+git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
+git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
+
+#luci-app-netspeedtest测速克隆
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
-git clone https://github.com/brvphoenix/luci-app-wrtbwmon.git package/luci-app-wrtbwmon
-git clone https://github.com/brvphoenix/wrtbwmon.git package/wrtbwmon
+
+# 4. 修改默认 IP (可选，例如改为 192.168.1.1)
+# sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
+
+# 5. 设置编译时间标识 (显示在后台页面)
+sed -i "s/OpenWrt /Lian-Liu-Build-$(date +%Y-%m-%d) /g" package/base-files/files/etc/banner
+git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
