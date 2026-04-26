@@ -10,7 +10,7 @@ on:
 
 env:
   # 使用 Padavan 源码的 24.10 分支（6.6 内核）
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: ax6000.config
