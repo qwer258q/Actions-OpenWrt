@@ -11,7 +11,7 @@ on:
 # ==================== 环境变量配置 ====================
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: 24.10-6.6
+  REPO_BRANCH: openwrt-24.10-6.6
   FEEDS_CONF: feeds.conf.default
   # 请确保你的仓库中存在这个 AX6000 的配置文件
   CONFIG_FILE: ax6000.config
