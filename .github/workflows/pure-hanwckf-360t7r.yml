@@ -9,7 +9,7 @@ on:
         default: 'false'
 
 env:
-  # 使用 Padavan 源码的 24.10 分支（6.6 内核）
+  # 确认使用 6.6 内核专项仓库和 24.10 分支
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: openwrt-24.10
   FEEDS_CONF: feeds.conf.default
@@ -32,7 +32,7 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
         sudo -E apt-get -qq install build-essential gawk gcc-multilib g++-multilib gettext libncurses-dev python3-distutils zlib1g-dev libssl-dev libelf-dev m4 quilt msmtp texinfo libslang2-dev libpcre3-dev
         sudo -E apt-get -qq autoremove --purge
@@ -40,7 +40,7 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        # 预先生成版本号
+        # 写入环境变量供全局使用
         echo "FIRMWARE_VERSION=$(date +"%y.%m.%d")" >> $GITHUB_ENV
         echo "RELEASE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
 
@@ -48,7 +48,6 @@ jobs:
       working-directory: /workdir
       run: |
         df -hT $PWD
-        # 尝试克隆，如果 openwrt-24.10 分支依然报错不存在，请确认远程仓库是否有该分支
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -68,6 +67,7 @@ jobs:
     - name: 禁用冲突插件
       run: |
         cd openwrt
+        # 24.10 分支下，Rust 插件对 360T7 这种闪存较小的机型压力较大
         find package/feeds -name "dns2socks-rust" -type d -exec rm -rf {} \; 2>/dev/null || true
         find package/feeds -name "luci-app-homeproxy" -type d -exec rm -rf {} \; 2>/dev/null || true
 
@@ -78,16 +78,18 @@ jobs:
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        # 修正机型锁定
-        sed -i 's/CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000=y/# CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000 is not set/g' .config
+        
+        # 强力锁定 360T7 机型，彻底清除 ASR3000 等潜在干扰
+        sed -i '/CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000/d' .config
         echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7=y" >> .config
+        
+        make defconfig
 
     - name: 下载包
       id: package
       run: |
         cd openwrt
-        make defconfig
-        make download -j$(nproc)
+        make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
@@ -105,7 +107,7 @@ jobs:
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages ./*.json ./*.manifest ./*.buildinfo ./sha256sums
-        # 重命名固件，增加 6.6 内核标识
+        # 统一固件改名逻辑
         for file in $(ls *360*t7*sysupgrade.bin 2>/dev/null); do
           mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-6.6-sysupgrade.bin"
         done
@@ -119,7 +121,7 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ImmortalWrt-360T7-6.6-${{ env.FIRMWARE_VERSION }}
+        name: 360T7-6.6-Firmware-${{ env.FIRMWARE_VERSION }}
         path: ${{ env.FIRMWARE_PATH }}
 
     - name: 创建 Release 标签
@@ -144,7 +146,7 @@ jobs:
         files: ${{ env.FIRMWARE_PATH }}/*
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 删除旧的运行记录
+    - name: 删除旧的记录
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
