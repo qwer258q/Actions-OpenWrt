@@ -11,7 +11,7 @@
 #
 
 # Modify default IP
-#sed -i 's/192.168.1.1/192.168.50.5/g' package/base-files/files/bin/config_generate
+sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
 
 # Modify default theme
 #sed -i 's/luci-theme-bootstrap/luci-theme-argon/g' feeds/luci/collections/luci/Makefile
@@ -21,7 +21,6 @@
 
 # 2. 添加你需要的网速测试插件
 # 我们直接克隆到 package/netspeedtest，结构简单明了
-rm -rf package/netspeedtest || true
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
 git clone https://github.com/brvphoenix/luci-app-wrtbwmon.git package/luci-app-wrtbwmon
 git clone https://github.com/brvphoenix/wrtbwmon.git package/wrtbwmon
