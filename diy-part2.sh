@@ -40,9 +40,6 @@ git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtes
 echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y" >> .config
 
-# 4. 修改默认 IP (可选，例如改为 192.168.1.1)
-# sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
-
 # 5. 设置编译时间标识 (显示在后台页面)
 sed -i "s/OpenWrt /Lian-Liu-Build-$(date +%Y-%m-%d) /g" package/base-files/files/etc/banner
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
