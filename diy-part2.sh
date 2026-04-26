@@ -32,6 +32,12 @@ rm -rf package/mosdns
 rm -rf package/v2ray-geodata
 rm -rf package/netspeedtest
 
+# --- 1. 物理删除：清理订阅源和 feeds 里的同名项 ---
+rm -rf feeds/small/luci-app-netspeedtest
+rm -rf feeds/small/netspeedtest
+rm -rf feeds/luci/applications/luci-app-netspeedtest
+rm -rf package/netspeedtest
+
 # 4. 重新下载你指定的精准源码
 # 这里下载的源码会存放在 package/ 目录下，优先级最高
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
