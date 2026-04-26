@@ -32,7 +32,13 @@ git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 
 #luci-app-netspeedtest测速克隆
+rm -rf package/netspeedtest
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
+
+# 6. 额外建议：针对 24.10 的 Firewall4 优化
+# 确保在编译时默认开启一些网络加速特性
+echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
+echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y" >> .config
 
 # 4. 修改默认 IP (可选，例如改为 192.168.1.1)
 # sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
