@@ -1,4 +1,4 @@
-name: ImmortalWrt-MT798x-24.10-360T7-108M
+name: pure-360T7-padavanonly-6.6
 
 on:
   repository_dispatch:
@@ -9,10 +9,12 @@ on:
         default: 'false'
 
 env:
+  # 替换为 padavanonly 的源码地址
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
-  REPO_BRANCH: openwrt-24.10-6.6
+  # 替换为 24.10-6.6 分支
+  REPO_BRANCH: 24.10-6.6
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: 360t7.config
+  CONFIG_FILE: pure.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   UPLOAD_FIRMWARE: true
@@ -25,41 +27,53 @@ jobs:
 
     steps:
     - name: 检查项目分支
-      uses: actions/checkout@v4
+      uses: actions/checkout@main
 
     - name: 初始化编译环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential gawk gcc-multilib g++-multilib gettext libncurses-dev python3-distutils zlib1g-dev libssl-dev libelf-dev m4 quilt msmtp texinfo libslang2-dev libpcre3-dev
+        # 针对 6.6 内核和 24.10 版本补充了更全的工具链
+        sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools rsync swig unzip zlib1g-dev
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        echo "FIRMWARE_VERSION=$(date +"%y.%m.%d")" >> $GITHUB_ENV
-        echo "RELEASE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
-
+        echo "FIRMWARE_VERSION=$(date +"%y%m%d")" >> $GITHUB_ENV
+        echo "START_DATE=$(date +'%Y年%m月%d日 %H点%M分%S秒')" >> $GITHUB_ENV
+        
     - name: 下载源码
       working-directory: /workdir
       run: |
-        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
+        
     - name: 加载软件源
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
+        
+    - name: 更新软件源
+      run: cd openwrt && ./scripts/feeds update -a
 
-    - name: 更新及安装软件源
+    - name: 安装软件源
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: 禁用冲突插件
       run: |
         cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        echo "🔧 清理可能导致内核/防火墙冲突的插件..."
+        # 24.10 强制使用 Firewall4 (nftables)，删除不兼容的旧插件
+        for pkg in luci-app-homeproxy luci-app-fchomo nikki luci-app-passwall2; do
+          find package/feeds -name "$pkg" -type d -exec rm -rf {} \; 2>/dev/null || true
+        done
+        echo "✅ 冲突清理完成"
 
     - name: 加载自定义配置
       run: |
@@ -68,69 +82,74 @@ jobs:
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        
-        # --- 核心锁定：针对 108M 大分区 ---
-        # 确保删除默认节点，并尝试匹配 108M 或大分区专用节点
-        # 注意：部分源码中 108M 的节点名可能是 qihoo_360t7-108m 或使用特定的分区表定义
-        sed -i '/CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000/d' .config
-        sed -i '/CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7/d' .config
-        
-        # 写入 108M 大分区版专用机型定义（具体取决于源码 package/linux/mediatek/image/mt7981.mk 里的定义）
-        # 如果源码中没有专门的 -108m 节点，通常通过修改 dts 或配置来实现
-        echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7=y" >> .config
-        
+        # 针对新内核执行 defconfig 补全
         make defconfig
-
+        
     - name: 下载包
       id: package
       run: |
         cd openwrt
-        make download -j8
+        make download -j16
+        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-
+        
     - name: 编译固件
       id: compile
       run: |
         cd openwrt
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile"
+        # 首次编译建议尽量使用更多线程，失败后会自动重试
+        make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-
+        
     - name: 整理固件
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages ./*.json ./*.manifest ./*.buildinfo ./sha256sums
-        for file in $(ls *360*t7*sysupgrade.bin 2>/dev/null); do
-          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-108M-6.6-sysupgrade.bin"
-        done
-        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        # 进入 360T7 所在的输出目录
+        cd openwrt/bin/targets/mediatek/mt7981
+        rm -rf packages version.buildinfo profiles.json *rootfs* *kernel* *.manifest sha256sums
+        # 适配 padavanonly 的命名习惯
+        mv *sysupgrade.bin ${{ env.FIRMWARE_VERSION }}-360T7-6.6内核-sysupgrade.bin || true
+        mv *factory.bin ${{ env.FIRMWARE_VERSION }}-360T7-6.6内核-factory.bin || true
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
-
+        
     - name: 上传固件到 Github Action 空间
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: 360T7-108M-6.6-${{ env.FIRMWARE_VERSION }}
-        path: ${{ env.FIRMWARE_PATH }}
-
+        name: ${{ env.FIRMWARE_VERSION }}-360T7-padavanonly-6.6
+        path: ${{ env.FIRMWARE }}
+        
     - name: 创建 Release 标签
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        release_tag="360T7-108M-6.6-${{ env.RELEASE_DATE }}"
-        echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
-        echo "## 360T7 108M 大分区版 (6.6内核)
-        - 分区布局: **108M 大分区**
-        - 源码: padavanonly/immortalwrt-mt798x-6.6
-        - 包含插件: OpenClash, 闭源无线驱动等" > release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: 上传固件到 Release
-      uses: softprops/action-gh-release@v2
+         time=$(date +%Y.%m.%d)
+         release_tag="360T7-padavanonly-6.6-$time"
+         echo "使用 padavanonly 源码编译
+         内核版本：Linux 6.6
+         源码分支：24.10
+         默认网关：192.168.6.1
+         特别说明：此分支支持性能更强的 MTK SDK 驱动">> release.txt
+         echo "release_name=$release_tag" >> $GITHUB_OUTPUT
+         echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
+         echo "status=success" >> $GITHUB_OUTPUT
+        
+    - name: 将固件上传到 Release
+      uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE_PATH }}/*
-        token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ steps.tag.outputs.release_name }} 
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: ${{ env.FIRMWARE }}/*
+
+    - name: 删除工作流运行
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        retain_days: 1
+        keep_minimum_runs: 3
