@@ -19,27 +19,18 @@ sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_genera
 # Modify hostname
 #sed -i 's/OpenWrt/P3TERX-Router/g' package/base-files/files/bin/config_generate
 
-# 2. 彻底清理 feeds 中的冲突项 (针对 small 源和官方源)
-# 清理 MosDNS 相关
+# 2. 彻底删除可能冲突的 feeds 索引 (这是为了解决 small 源的冲突)
 rm -rf feeds/small/mosdns
 rm -rf feeds/small/luci-app-mosdns
-rm -rf feeds/packages/net/mosdns
-rm -rf feeds/luci/applications/luci-app-mosdns
-
-# 清理 Netspeedtest 相关
 rm -rf feeds/small/netspeedtest
 rm -rf feeds/small/luci-app-netspeedtest
-rm -rf feeds/luci/applications/luci-app-netspeedtest
 
-# 清理 Geodata 相关
-rm -rf feeds/packages/net/v2ray-geodata
-
-# 3. 强制删除 package 目录下的残留，防止 git clone 报错 (Exit 128)
+# 3. 物理删除 package 目录下已经存在的同名文件夹 (这是解决 Exit code 128 的关键)
 rm -rf package/mosdns
 rm -rf package/v2ray-geodata
 rm -rf package/netspeedtest
 
-# 4. 重新拉取指定的精准源码
+# 4. 现在再执行克隆，就不会报错了
 git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
