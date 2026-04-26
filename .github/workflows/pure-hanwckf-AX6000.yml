@@ -10,11 +10,10 @@ on:
 
 # ==================== 环境变量配置 ====================
 env:
-  # 源码地址保持不变，但分支建议确认该仓库是否有 ax6000 专版，通常 24.10-6.6 是通用的
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
   REPO_BRANCH: 24.10-6.6
   FEEDS_CONF: feeds.conf.default
-  # 建议你的配置文件名也改为 ax6000 相关
+  # 请确保你的仓库中存在这个 AX6000 的配置文件
   CONFIG_FILE: ax6000.config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
@@ -32,7 +31,7 @@ jobs:
     - name: 检出项目分支源码
       uses: actions/checkout@main
 
-    # [2] 释放磁盘空间 (红米AX6000内核及驱动较多，建议保留此步骤)
+    # [2] 释放磁盘空间
     - name: 释放编译环境磁盘空间 (Ubuntu)
       uses: jlumbroso/free-disk-space@main
       with:
@@ -54,7 +53,7 @@ jobs:
         sudo apt-mark hold grub-efi-amd64-signed
         sudo apt update -y
         sudo apt full-upgrade -y
-        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
+        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
 
@@ -66,7 +65,7 @@ jobs:
         git clone $REPO_URL -b $REPO_BRANCH --single-branch --depth 1 openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    # [5] 加载自定义 feeds
+    # [5] 加载自定义 feeds 配置
     - name: 加载自定义 feeds 配置
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -74,9 +73,11 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
 
+    # [6] 更新 feeds 索引
     - name: 更新 feeds 索引
       run: cd openwrt && ./scripts/feeds update -a
 
+    # [7] 安装 feeds 软件包
     - name: 安装 feeds 软件包
       run: cd openwrt && ./scripts/feeds install -a
 
@@ -88,15 +89,16 @@ jobs:
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        # 针对 AX6000 硬件架构刷新配置
+        # 自动补全配置
         make defconfig
 
-    # [9] 预下载
+    # [9] 预下载软件包
     - name: 预下载软件包
       id: package
       run: |
         cd openwrt
         make download -j16
+        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     # [10] 编译固件
@@ -106,65 +108,92 @@ jobs:
         cd openwrt
         export USE_CCACHE=1
         export CCACHE_DIR="$PWD/.ccache"
+        export CCACHE_COMPILERCHECK=content
+        export CCACHE_COMPRESS=1
+        export CCACHE_MAXSIZE=2G
+        
         echo "🔧 编译线程数: $(nproc)"
-        # AX6000 编译耗时较长，增加线程并发
         make -j$(($(nproc) + 1)) || make -j1 || make -j1 V=s
+        
         echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-    # [12] 整理固件文件
+    # [11] 检查磁盘使用情况
+    - name: 检查磁盘空间使用
+      if: (!cancelled())
+      run: df -hT
+
+    # [12] 整理固件文件 (AX6000 路径适配)
     - name: 整理固件文件
       id: organize
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        # 进入红米 AX6000 对应的输出目录 (通常是 mediatek/mt7986)
+        # 红米 AX6000 属于 mediatek/mt7986 平台
         cd openwrt/bin/targets/mediatek/mt7986
-        rm -rf packages
-        # 识别红米AX6000特有的固件后缀（通常包含 stock-layout 或 ubifs）
+        rm -rf packages ./*kernel* ./*rootfs* ./*.manifest
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    # [13] 上传固件 (Actions 产物)
+    # [13] 上传固件到 Actions 产物
     - name: 上传固件 (Actions 产物)
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: RedMi-AX6000-OpenWrt${{ env.FILE_DATE }}
+        name: Redmi-AX6000-OpenWrt${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
 
-    # [14] 生成 Release 标签 (更新为 AX6000 信息)
+    # [14] 生成 Release 标签
     - name: 生成 Release 标签
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
          time=$(date +%Y.%m.%d)
          release_tag="AX6000-ImmortalWrt-2410-$time"
-         release_name="红米AX6000-ImmortalWrt-2410-6.6内核-$time"
+         release_name="红米AX6000-ImmortalWrt-24.10-6.6内核-$time"
 
          cat > release.txt <<EOF
-         ## 🚀 红米 AX6000 (RB06) 精简固件
-         - 🎯 设备：Xiaomi Redmi AX6000
-         - ⚙️ 内核：Linux 6.6 (padavanonly 源码)
-         - 📅 构建时间：$time
-         - 🌐 默认网关：192.168.31.1
-         - 🔑 默认密码：无
-         - 📦 集成插件：TurboAcc, MosDNS
+         ## 📦 固件信息
+         - 🎯 设备：红米 AX6000 (RB06)
+         - ⚙️ 内核：Linux 6.6
+         - 📅 构建：$time
+         - 🌐 网关：192.168.31.1
+         - 🔑 密码：无
+         - 🔧 组件：TurboAcc, MosDNS
          
-         > 注意：本固件适用于红米AX6000，请确保已开启 SSH 并刷入 U-Boot。
+         > ⚠️ 请确保您已刷入大分区 U-Boot 以后再刷入此固件。
          EOF
 
          echo "release_name=$release_name" >> $GITHUB_OUTPUT
          echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
          echo "status=success" >> $GITHUB_OUTPUT
 
-    # [15] 发布
+    # [15] 发布固件到 GitHub Releases
     - name: 发布固件到 GitHub Releases
       uses: softprops/action-gh-release@v1
       if: steps.tag.outputs.status == 'success' && !cancelled()
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
         name: ${{ steps.tag.outputs.release_name }}
+        tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
+
+    # [16] 清理旧记录
+    - name: 清理旧的工作流记录
+      uses: GitRML/delete-workflow-runs@main
+      with:
+        retain_days: 1
+        keep_minimum_runs: 5
+
+    # [17] 清理旧 Release
+    - name: 清理旧的 Releases
+      uses: dev-drprasad/delete-older-releases@v0.2.1
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+        keep_latest: 5
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
