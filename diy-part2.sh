@@ -3,6 +3,15 @@
 # https://github.com/P3TERX/Actions-OpenWrt
 # File name: diy-part2.sh
 
+#!/bin/bash
+
+#--- 核心修复：升级 Go 环境 (解决 1.24 版本要求) ---
+
+rm -rf feeds/packages/lang/golanggit
+
+git clone https://github.com/sbwml/packages_lang_golang
+ feeds/packages/lang/golang
+
 # 1. 修改默认 IP
 sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
 
