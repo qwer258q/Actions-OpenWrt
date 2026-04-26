@@ -26,7 +26,7 @@ jobs:
 
     steps:
     - name: 检查项目分支
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: 初始化编译环境
       env:
@@ -40,23 +40,25 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-        echo "FIRMWARE_VERSION=$(date +"%y%m%d")" >> $GITHUB_ENV
-        echo "START_DATE=$(date +'%Y年%m月%d日 %H点%M分%S秒')" >> $GITHUB_ENV
-        
+        # 预先生成版本号
+        echo "FIRMWARE_VERSION=$(date +"%y.%m.%d")" >> $GITHUB_ENV
+        echo "RELEASE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+
     - name: 下载源码
       working-directory: /workdir
       run: |
         df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        # 尝试克隆，如果 openwrt-24.10 分支依然报错不存在，请确认远程仓库是否有该分支
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-        
+
     - name: 加载软件源
       run: |
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
-        
+
     - name: 更新及安装软件源
       run: |
         cd openwrt
@@ -66,10 +68,9 @@ jobs:
     - name: 禁用冲突插件
       run: |
         cd openwrt
-        # 24.10 分支下，部分基于 Rust 的插件容易导致 360T7 内存溢出或编译错误，预先清理
         find package/feeds -name "dns2socks-rust" -type d -exec rm -rf {} \; 2>/dev/null || true
         find package/feeds -name "luci-app-homeproxy" -type d -exec rm -rf {} \; 2>/dev/null || true
-        
+
     - name: 加载自定义配置
       run: |
         [ -e files ] && mv files openwrt/files
@@ -77,10 +78,10 @@ jobs:
         chmod +x $DIY_P2_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
-        # 强力锁死 360T7 机型，防止跑偏到 asr3000
+        # 修正机型锁定
         sed -i 's/CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000=y/# CONFIG_TARGET_mediatek_mt7981_DEVICE_abt_asr3000 is not set/g' .config
         echo "CONFIG_TARGET_mediatek_mt7981_DEVICE_qihoo_360t7=y" >> .config
-        
+
     - name: 下载包
       id: package
       run: |
@@ -89,7 +90,7 @@ jobs:
         make download -j$(nproc)
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-        
+
     - name: 编译固件
       id: compile
       run: |
@@ -97,69 +98,54 @@ jobs:
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-        
+
     - name: 整理固件
       id: organize
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         cd openwrt/bin/targets/*/*
         rm -rf packages ./*.json ./*.manifest ./*.buildinfo ./sha256sums
-        
-        # 使用 find 匹配 360T7 固件，改名并加上 6.6 内核标识
+        # 重命名固件，增加 6.6 内核标识
         for file in $(ls *360*t7*sysupgrade.bin 2>/dev/null); do
-          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-Padavan-6.6-sysupgrade.bin"
+          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-6.6-sysupgrade.bin"
         done
         for file in $(ls *360*t7*factory.bin 2>/dev/null); do
-          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-Padavan-6.6-factory.bin"
+          mv "$file" "${{ env.FIRMWARE_VERSION }}-360T7-6.6-factory.bin"
         done
-        
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
-        
+
     - name: 上传固件到 Github Action 空间
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: ${{ env.FIRMWARE_VERSION }}-360T7-Padavan-6.6
-        path: ${{ env.FIRMWARE }}
+        name: ImmortalWrt-360T7-6.6-${{ env.FIRMWARE_VERSION }}
+        path: ${{ env.FIRMWARE_PATH }}
 
     - name: 创建 Release 标签
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
       run: |
-        time=$(date +%Y.%m.%d)
-        release_tag="360T7-Padavan-6.6-$time"
-        echo "## 360T7 Padavan 24.10 (6.6内核)
-        - 源码: padavanonly/immortalwrt-mt798x
-        - 分支: openwrt-24.10
-        - 默认 IP: 192.168.31.1
-        - 包含闭源驱动 & OpenClash" >> release.txt
-        echo "release_name=$release_tag" >> $GITHUB_OUTPUT
+        release_tag="360T7-Padavan-6.6-${{ env.RELEASE_DATE }}"
         echo "release_tag=$release_tag" >> $GITHUB_OUTPUT
+        echo "## 360T7 Padavan 24.10 (6.6内核)
+        - 源码: padavanonly/immortalwrt-mt798x-6.6
+        - 分支: ${{ env.REPO_BRANCH }}
+        - 默认 IP: 192.168.31.1
+        - 包含闭源驱动 & OpenClash" > release.txt
         echo "status=success" >> $GITHUB_OUTPUT
-        
+
     - name: 上传固件到 Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: ${{ steps.tag.outputs.release_name }} 
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
+        files: ${{ env.FIRMWARE_PATH }}/*
+        token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 删除工作流运行
+    - name: 删除旧的运行记录
       uses: GitRML/delete-workflow-runs@main
       with:
         retain_days: 1
         keep_minimum_runs: 3
-
-    - name: 删除旧的releases
-      uses: dev-drprasad/delete-older-releases@v0.2.1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 10
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
