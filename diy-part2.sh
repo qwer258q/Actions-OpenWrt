@@ -23,3 +23,5 @@
 # 我们直接克隆到 package/netspeedtest，结构简单明了
 rm -rf package/netspeedtest || true
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
+git clone https://github.com/brvphoenix/luci-app-wrtbwmon.git package/luci-app-wrtbwmon
+git clone https://github.com/brvphoenix/wrtbwmon.git package/wrtbwmon
