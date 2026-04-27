@@ -135,7 +135,7 @@ jobs:
         time=$(date +%Y.%m.%d)
         release_tag="360T7-v6.6-$time"
         echo "跟进上游 6.6 内核源码
-        默认网关：192.168.1.1 (或根据你的 config 而定)
+        默认网关：192.168.31.1 (或根据你的 config 而定)
         内核版本：Linux 6.6
         集成插件：OpenClash" > release.txt
         echo "release_name=360T7-ImmortalWrt-6.6-$time" >> $GITHUB_OUTPUT
