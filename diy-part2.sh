@@ -23,6 +23,9 @@ git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
 git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 git clone https://github.com/muink/luci-app-netspeedtest.git package/netspeedtest
 
+# 5. 修改默认IP基础设置
+sed -i 's/192.168.1.1/192.168.31.1/g' package/base-files/files/bin/config_generate
+
 # 5. 注入编译配置
 echo "CONFIG_PACKAGE_luci-app-turboacc=y" >> .config
 echo "CONFIG_PACKAGE_luci-app-turboacc_INCLUDE_OFFLOADING=y" >> .config
